@@ -1,0 +1,325 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  STUDENT
+  Moderator
+  STAFF
+  ADMIN
+}
+
+enum ProductCondition {
+  NEW
+  USED
+  REFURBISHED
+}
+
+enum ProductStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SOLD
+  OUT_OF_STOCK
+  DELETED
+}
+
+enum ExchangeStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  COMPLETED
+  CANCELLED
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  SHIPPED
+  DELIVERED
+  RETURNED
+  CANCELLED
+}
+
+enum NotificationType {
+  ORDER
+  EXCHANGE
+  OFFER
+  SYSTEM
+  WARNING
+}
+
+enum Gender {
+  MALE
+  FEMALE
+}
+
+enum PaymentMethod {
+  CASH_ON_DELIVERY
+  BKASH
+  NAGAD
+  ROCKET
+  BANK_TRANSFER
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String   @db.VarChar(100)
+  email        String   @unique @db.VarChar(255)
+  phone        String   @db.VarChar(20)
+  passwordHash String   @db.VarChar(255)
+  profileImage String?  @db.VarChar(500)
+  role         UserRole @default(STUDENT)
+  department   String?  @db.VarChar(100)
+  studentId    String?  @unique @db.VarChar(50)
+  isVerified   Boolean  @default(false)
+  isActive     Boolean  @default(true)
+  lastLogin    DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  products           Product[]
+  cartItems          Cart[]
+  ordersAsBuyer      Order[] @relation("BuyerOrders")
+  exchangeRequests   ExchangeRequest[]
+  sentMessages       Message[] @relation("SentMessages")
+  receivedMessages   Message[] @relation("ReceivedMessages")
+  reviews            Review[]
+  notifications      Notification[]
+  activityLogs       ActivityLog[]
+  wishlistItems      Wishlist[]
+  reportsAsReporter  Report[] @relation("ReporterReports")
+  reportsAsModerator Report[] @relation("ModeratorReports")
+}
+
+model Category {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @db.VarChar(100)
+  slug      String   @unique @db.VarChar(150)
+  parentId  String?  @db.Uuid
+  icon      String?  @db.VarChar(255)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  parent   Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children Category[] @relation("CategoryHierarchy")
+  products Product[]
+}
+
+model Product {
+  id                String           @id @default(uuid()) @db.Uuid
+  sellerId          String           @db.Uuid
+  categoryId        String           @db.Uuid
+  title             String           @db.VarChar(255)
+  description       String           @db.Text
+  price             Float
+  condition         ProductCondition
+  stock             Int              @default(1)
+  isExchangeAllowed Boolean          @default(false)
+  status            ProductStatus    @default(PENDING)
+  views             Int              @default(0)
+  discountPercent   Int              @default(0)
+  discountedPrice   Float?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  seller                      User              @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  category                    Category          @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  images                      ProductImage[]
+  cartItems                   Cart[]
+  orderItems                  OrderItem[]
+  exchangeRequestsAsRequester ExchangeRequest[] @relation("RequesterProduct")
+  exchangeRequestsAsTarget    ExchangeRequest[] @relation("TargetProduct")
+  messages                    Message[]
+  reviews                     Review[]
+  wishlistedBy                Wishlist[]
+  reports                     Report[]
+
+  @@index([sellerId])
+  @@index([categoryId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([price])
+}
+
+model ProductImage {
+  id        String   @id @default(uuid()) @db.Uuid
+  productId String   @db.Uuid
+  imageUrl  String   @db.VarChar(500)
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+model Cart {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  productId  String   @db.Uuid
+  quantity   Int      @default(1)
+  priceAtAdd Float
+  addedAt    DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+}
+
+model Order {
+  id              String          @id @default(uuid()) @db.Uuid
+  orderNumber     String          @unique @db.VarChar(100)
+  buyerId         String          @db.Uuid
+  totalAmount     Float
+  deliveryAddress String          @db.Text
+  paymentMethod   PaymentMethod
+  paymentStatus   PaymentStatus   @default(PENDING)
+  orderStatus     OrderStatus     @default(PENDING)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  buyer      User        @relation("BuyerOrders", fields: [buyerId], references: [id], onDelete: Cascade)
+  orderItems OrderItem[]
+
+  @@index([buyerId])
+  @@index([orderStatus])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id              String  @id @default(uuid()) @db.Uuid
+  orderId         String  @db.Uuid
+  productId       String? @db.Uuid
+  quantity        Int
+  price           Float
+  productSnapshot Json
+
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+}
+
+model ExchangeRequest {
+  id                 String         @id @default(uuid()) @db.Uuid
+  requestNumber      String         @unique @db.VarChar(100)
+  requesterId        String         @db.Uuid
+  requesterProductId String         @db.Uuid
+  targetProductId    String         @db.Uuid
+  status             ExchangeStatus @default(PENDING)
+  message            String?        @db.Text
+  additionalPayment  Float          @default(0)
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  requester        User    @relation(fields: [requesterId], references: [id], onDelete: Cascade)
+  requesterProduct Product @relation("RequesterProduct", fields: [requesterProductId], references: [id], onDelete: Cascade)
+  targetProduct    Product @relation("TargetProduct", fields: [targetProductId], references: [id], onDelete: Cascade)
+}
+
+model Message {
+  id             String   @id @default(uuid()) @db.Uuid
+  fromUserId     String   @db.Uuid
+  toUserId       String   @db.Uuid
+  productId      String?  @db.Uuid
+  conversationId String   @db.Uuid
+  message        String   @db.Text
+  isRead         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  fromUser User     @relation("SentMessages", fields: [fromUserId], references: [id], onDelete: Cascade)
+  toUser   User     @relation("ReceivedMessages", fields: [toUserId], references: [id], onDelete: Cascade)
+  product  Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([fromUserId])
+  @@index([toUserId])
+  @@index([conversationId])
+  @@index([createdAt])
+}
+
+model Review {
+  id        String   @id @default(uuid()) @db.Uuid
+  productId String   @db.Uuid
+  userId    String   @db.Uuid
+  rating    Int
+  comment   String?  @db.Text
+  createdAt DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, userId])
+}
+
+model Notification {
+  id         String           @id @default(uuid()) @db.Uuid
+  userId     String           @db.Uuid
+  type       NotificationType
+  title      String           @db.VarChar(255)
+  message    String           @db.Text
+  isRead     Boolean          @default(false)
+  actionLink String?          @db.VarChar(500)
+  createdAt  DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ActivityLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String?  @db.Uuid
+  action    String   @db.VarChar(255)
+  entity    String   @db.VarChar(100)
+  entityId  String?  @db.VarChar(100)
+  ip        String?  @db.VarChar(100)
+  userAgent String?  @db.VarChar(500)
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model Wishlist {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  productId String   @db.Uuid
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@index([userId])
+  @@index([productId])
+}
+
+model Report {
+  id            String    @id @default(uuid()) @db.Uuid
+  reporterId    String    @db.Uuid
+  productId     String?   @db.Uuid
+  reason        String    @db.VarChar(255)
+  description   String    @db.Text
+  status        String    @default("PENDING")
+  moderatedBy   String?   @db.Uuid
+  moderatedAt   DateTime?
+  moderatorNote String?   @db.Text
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  reporter  User     @relation("ReporterReports", fields: [reporterId], references: [id], onDelete: Cascade)
+  product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  moderator User?    @relation("ModeratorReports", fields: [moderatedBy], references: [id], onDelete: SetNull)
+
+  @@index([reporterId])
+  @@index([productId])
+  @@index([status])
+  @@index([createdAt])
+}
